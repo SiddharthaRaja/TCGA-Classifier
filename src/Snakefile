@@ -1,0 +1,72 @@
+# Snakefile — full pipeline orchestration.
+#
+# Run once, let it manage everything:
+#   snakemake --cores 1 --jobs 10
+#
+# Paths follow $TCGA_SCRATCH_ROOT (data/, defaults to ~/siddhartha/data)
+# and $TCGA_RESULTS_ROOT (results/, defaults to ~/siddhartha/results —
+# always home, kept separate so results survive even during a scratch test).
+#
+# Each step only reruns if its inputs changed or its output is missing —
+# safe to re-launch after an interruption without redoing finished work.
+
+import os
+from pathlib import Path
+
+BACKBONES = ["densenet121", "convnext", "phikon", "ctranspath", "retccl"]
+POOLINGS = ["mean", "attention"]
+
+DATA = os.environ.get("TCGA_SCRATCH_ROOT", str(Path.home() / "siddhartha" / "data"))
+RESULTS = os.environ.get("TCGA_RESULTS_ROOT", str(Path.home() / "siddhartha" / "results"))
+
+rule all:
+    input:
+        f"{RESULTS}/comparison_table.csv"
+
+
+rule build_labels:
+    output:
+        f"{DATA}/labels.json"
+    shell:
+        "python build_labels.py"
+
+
+rule build_splits:
+    input:
+        f"{DATA}/labels.json"
+    output:
+        f"{DATA}/splits.json"
+    shell:
+        "python build_splits.py"
+
+
+rule extract_all_backbones:
+    input:
+        f"{DATA}/splits.json"
+    output:
+        marker=f"{DATA}/features_patch/.done"
+    shell:
+        """
+        sbatch --wait jobs/extract_all_backbones.slurm
+        touch {output.marker}
+        """
+
+
+rule pool_classify:
+    input:
+        marker=f"{DATA}/features_patch/.done"
+    output:
+        f"{RESULTS}/{{backbone}}_{{pooling}}.json"
+    shell:
+        "python train_pooled_classifier.py --backbone {wildcards.backbone} "
+        "--pooling {wildcards.pooling} --out {output}"
+
+
+rule aggregate:
+    input:
+        expand(f"{RESULTS}/{{backbone}}_{{pooling}}.json",
+               backbone=BACKBONES, pooling=POOLINGS)
+    output:
+        f"{RESULTS}/comparison_table.csv"
+    shell:
+        "python aggregate_results.py --out {output}"

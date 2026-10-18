@@ -1,0 +1,23 @@
+# data and pipeline outputs — never commit
+data/
+state/
+results/
+logs/
+*.svs
+*.npz
+*.part
+*.tmp
+*.lock
+backup_*.tar.gz
+case_manifest.json
+labels.json
+splits.json
+
+# python / env
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+.ipynb_checkpoints/
+.snakemake/
